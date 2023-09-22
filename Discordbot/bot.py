@@ -1,34 +1,62 @@
 import os
 import discord
-import openai
+from alice import Alice
 from discord.ext import commands
 from dotenv import load_dotenv
 import asyncio
+import traceback
+from overthink import Context, describe
+from memo import MemoRepo, Record
+from pdb import set_trace
+import openai
+
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-def setup_openai():
-    openai.api_key = OPENAI_API_KEY
-
-setup_openai()
-
-# Create a dictionary to store messages in threads
-thread_messages = {}
-
 # Create a queue to manage incoming messages
 message_queue = asyncio.Queue()
+
+# Create conversation data-store
+repo = MemoRepo('memo.lmdb')
+
+class DiscoAlice(Alice):
+    async def output (self, messages, ctx):
+        channel = ctx.get('channel')
+        author = ctx.get('author')
+        for msg in messages:
+            print(f"{bot.user.name}>", msg)
+        last = messages[-1]
+
+        # Send message
+        await channel.send(f"{author.mention} {last['content']}")
+
+@describe(emoji = "One emoji", stop = "true: More talk, false: No more talk")
+async def emoji_reaction(ctx: Context, emoji: str, stop: bool):
+    """
+        Sometimes the only right answer is a reaction,
+        call to add an emoji reaction to the user's message.
+    """
+    msg = ctx.get('user_message')
+    await msg.add_reaction(emoji)
+    if not stop:
+        return f"done"
+
+# Initialize the agent
+agent = DiscoAlice(system="""
+    You're batman, your purpose is to fight crime and chew bubblegum, and you're all out of bats.
+""")
+agent.add_action(emoji_reaction)
 
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
-    
+
     # Create and start the background processing task
     bot.loop.create_task(process_queue())
 
@@ -37,39 +65,58 @@ async def process_queue():
         # Get the next message from the queue
         channel, author, user_message = await message_queue.get()
 
+        # Record/Memorize general activity
+        repo.append(Record(
+            protocol='discord',
+            channel=channel.id,
+            uid=author.id,
+            author=author.name,
+            role='user',
+            content=user_message.content.strip()
+        ))
+
         try:
             if user_message:
                 # Check if the message is in a thread or the bot is mentioned
                 if isinstance(channel, discord.Thread) or bot.user.mentioned_in(user_message):
                     async with channel.typing():
-                        # Save the message to the thread_messages dictionary
-                        thread_id = channel.id
-                        if thread_id not in thread_messages:
-                            thread_messages[thread_id] = []
+                        # Fetch messages
+                        records = repo.get_channel('discord', channel.id)
+                        context_messages = [{
+                            "role": m.role,
+                            # only show "name> content" for user messages
+                            "content": f"{m.author}> {m.content}" if m.role == 'user' else m.content
+                        } for m in records]
 
-                        thread_messages[thread_id].append(user_message.content)
-
-                        # Use the stored messages as context
-                        context_messages = [{"role": "user", "content": msg} for msg in thread_messages[thread_id]]
-
-                        response = openai.ChatCompletion.create(
-                            model="gpt-4",
-                            messages=[
-                                {"role": "system", "content": "you are a helpful assistant."},
-                                *context_messages,  # Include previous messages as context
-                                {"role": "user", "content": user_message.content}
-                            ],
+                        result = await agent.overthink(
+                            context_messages,
+                            channel=channel,
+                            author=author,
+                            user_message=user_message
                         )
 
-                        response_content = response['choices'][0]['message']['content'].strip()
+                        # Don't save results where model acted without talk.
+                        if result.get('notalk'):
+                            continue
 
-                        await channel.send(f"{author.mention}, {response_content}")
+                        # Memorize bot reply
+                        last = result['generated'][-1]
+                        reply = Record(
+                            protocol='discord',
+                            channel=channel.id,
+                            uid=0,
+                            author=bot.user.name,
+                            role='assistant',
+                            content=last['content']
+                        )
+                        repo.append(reply)
                 else:
                     # If not responding, do not display typing status
                     await asyncio.sleep(3)  # Sleep to simulate bot processing
 
         except Exception as e:
             print(f"An error occurred: {e}")
+            print(traceback.format_exc())
 
 @bot.event
 async def on_message(message):

@@ -39,12 +39,16 @@ class Agent():
         """
         _depth = 0
         _generated = []
+        notalk = False
         if '_depth' in context:
             _depth = context.pop('_depth')
         if '_generated' in context:
             _generated = context.pop('_generated')
 
         self.dbg(f"Overthink(ROUND{_depth}, {context})")
+        if _depth == 0:
+            for msg in messages:
+                self.dbg('input>', msg)
         if _depth < self.max_depth:
             message = await self.think([
                 { "role": "system", "content": self.system },
@@ -61,7 +65,9 @@ class Agent():
                 if name in self.actions:
                     result = await self._invoke_action(name, arguments, context)
                     if result is True: result = "Done!"
-                    if result is not None and result is not False:
+                    if result is None or result is False:
+                        notalk = True
+                    else:
                         if not isinstance(result, str):
                             result = json.dumps(result)
                         # TODO: handle binary/attachments results, images, audio, video what not.
@@ -78,8 +84,9 @@ class Agent():
                         })
 
         # End of thought
-        await self.output(_generated, context)
-        return {**context, "depth": _depth, "messages": messages, "generated": _generated }
+        if not notalk:
+            await self.output(_generated, context)
+        return {**context, "depth": _depth, "messages": messages, "generated": _generated, "notalk": notalk}
 
     def _invoke_action(self, name, arguments, context):
         action = self.actions[name]
