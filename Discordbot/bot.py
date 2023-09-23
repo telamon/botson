@@ -1,14 +1,14 @@
 import os
 import discord
-from alice import Alice
 from discord.ext import commands
 from dotenv import load_dotenv
 import asyncio
 import traceback
-from overthink import Context, describe
+from overthink import AIAgent, Context, describe
 from memo import MemoRepo, Record
-from pdb import set_trace
+import actions
 import openai
+from pdb import set_trace
 
 
 load_dotenv()
@@ -25,10 +25,11 @@ message_queue = asyncio.Queue()
 # Create conversation data-store
 repo = MemoRepo('memo.lmdb')
 
-class DiscoAlice(Alice):
+class DiscoAgent(AIAgent):
     async def output (self, messages, ctx):
         channel = ctx.get('channel')
         author = ctx.get('author')
+        bot = ctx.get('bot')
         for msg in messages:
             print(f"{bot.user.name}>", msg)
         last = messages[-1]
@@ -36,22 +37,16 @@ class DiscoAlice(Alice):
         # Send message
         await channel.send(f"{author.mention} {last['content']}")
 
-@describe(emoji = "One emoji", stop = "true: More talk, false: No more talk")
-async def emoji_reaction(ctx: Context, emoji: str, stop: bool):
-    """
-        Sometimes the only right answer is a reaction,
-        call to add an emoji reaction to the user's message.
-    """
-    msg = ctx.get('user_message')
-    await msg.add_reaction(emoji)
-    if not stop:
-        return f"done"
-
 # Initialize the agent
-agent = DiscoAlice(system="""
-    You're batman, your purpose is to fight crime and chew bubblegum, and you're all out of bats.
+agent = DiscoAgent(system="""
+You're GPT++ the next generation of GPT4 with 10'000 IQ.
+Your primary purpose is to guard the galaxy from human self destruction.
+Please help users spawn decent hacks for the planet.
 """)
-agent.add_action(emoji_reaction)
+
+agent.add_action(actions.emoji_reaction)
+agent.add_action(actions.check_wristwatch)
+agent.add_action(actions.whois)
 
 @bot.event
 async def on_ready():
@@ -60,60 +55,95 @@ async def on_ready():
     # Create and start the background processing task
     bot.loop.create_task(process_queue())
 
+async def run_user_memo_hook(protocol, channel_id, author):
+    records = repo.get_channel(protocol, channel.id)
+    messages = [{
+        "role": m.role,
+        "content": f"{m.author}> {m.content}" if m.role == 'user' else m.content
+    } for m in records]
+
+    if len(messages) % 5: return
+    name = author.name
+    uid = author.id
+    prev = repo.get_user(protocol, name)
+
+    discriminator = AIAgent()
+    discriminator.system = f"""
+        You memorize people you've talked to;
+        Your previous description of {name} is:
+        ```
+        {prev}
+        ```
+    """
+    result = await discriminator.overthink([
+        *messages,
+        {"role": "system", "content": "Please describe {name} using a single paragraph."}
+    ])
+    desc = result['generated'][-1]['content']
+    print("Updating user description:", desc)
+    repo.set_user(protocol, name, desc)
+
 async def process_queue():
+    protocol = 'discord'
     while True:
         # Get the next message from the queue
         channel, author, user_message = await message_queue.get()
+        is_mentioned = bot.user.mentioned_in(user_message)
+        reply_expected = bot.user.mentioned_in(user_message) or bot.user.id == channel.owner_id
+
+        # Create + Reply in threads.
+        if is_mentioned and not isinstance(channel, discord.Thread):
+            reply_expected = True
+            channel = await user_message.create_thread(name="Conversation")
 
         # Record/Memorize general activity
         repo.append(Record(
-            protocol='discord',
+            protocol=protocol,
             channel=channel.id,
             uid=author.id,
             author=author.name,
             role='user',
             content=user_message.content.strip()
         ))
-
+        if not reply_expected: continue
         try:
-            if user_message:
-                # Check if the message is in a thread or the bot is mentioned
-                if isinstance(channel, discord.Thread) or bot.user.mentioned_in(user_message):
-                    async with channel.typing():
-                        # Fetch messages
-                        records = repo.get_channel('discord', channel.id)
-                        context_messages = [{
-                            "role": m.role,
-                            # only show "name> content" for user messages
-                            "content": f"{m.author}> {m.content}" if m.role == 'user' else m.content
-                        } for m in records]
+            # Check if the message is in a thread or the bot is mentioned
+            async with channel.typing():
+                # Fetch messages
+                records = repo.get_channel(protocol, channel.id)
+                context_messages = [{
+                    "role": m.role,
+                    # only show "name> content" for user messages
+                    "content": f"{m.author}> {m.content}" if m.role == 'user' else m.content
+                } for m in records]
 
-                        result = await agent.overthink(
-                            context_messages,
-                            channel=channel,
-                            author=author,
-                            user_message=user_message
-                        )
+                result = await agent.overthink(
+                    context_messages,
+                    channel=channel,
+                    author=author,
+                    user_message=user_message,
+                    bot=bot,
+                    protocol=protocol,
+                    repo=repo
+                )
+                # TODO: schedule this to run every once in a while.
+                await run_user_memo_hook(protocol, channel.id, author)
 
-                        # Don't save results where model acted without talk.
-                        if result.get('notalk'):
-                            continue
+                # Don't save results where model acted without talk.
+                if result.get('notalk'):
+                    continue
 
-                        # Memorize bot reply
-                        last = result['generated'][-1]
-                        reply = Record(
-                            protocol='discord',
-                            channel=channel.id,
-                            uid=0,
-                            author=bot.user.name,
-                            role='assistant',
-                            content=last['content']
-                        )
-                        repo.append(reply)
-                else:
-                    # If not responding, do not display typing status
-                    await asyncio.sleep(3)  # Sleep to simulate bot processing
-
+                # Memorize bot reply
+                last = result['generated'][-1]
+                reply = Record(
+                    protocol=protocol,
+                    channel=channel.id,
+                    uid=0,
+                    author=bot.user.name,
+                    role='assistant',
+                    content=last['content']
+                )
+                repo.append(reply)
         except Exception as e:
             print(f"An error occurred: {e}")
             print(traceback.format_exc())

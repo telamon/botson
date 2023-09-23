@@ -109,7 +109,7 @@ class Agent():
 
     # override this method with and do channel.send()
     async def output(self, generated: list, ctx):
-        raise NotImplementedError()
+        pass
 
     # Returns a registered actions as json-type-spec thingy
     async def functions_spec(self):

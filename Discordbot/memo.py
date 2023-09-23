@@ -57,6 +57,16 @@ class MemoRepo:
                 messages.insert(0, record)
         return messages
 
+    def set_user(self, protocol: str, uid: str, desc: str):
+        with self.env.begin(db=self.peers_db, write=True) as txn:
+            txn.put(bytes(f"{protocol}¤{uid}", "utf8"), cbor2.dumps(desc))
+
+    def get_user(self, protocol: str, uid: str):
+        with self.env.begin(db=self.peers_db) as txn:
+            res = txn.get(bytes(f"{protocol}¤{uid}", "utf8"))
+            if (res is not None): return cbor2.loads(res)
+            return None
+
     @staticmethod
     def mk_key(proto, chan, date):
         return bytes(f"{proto}¤{chan}¤{date}", 'utf8')
@@ -76,10 +86,9 @@ if __name__ == '__main__':
     # Start fresh
     if os.path.exists(DB_FILE):
         rmtree(DB_FILE)
-
+    db = MemoRepo('.test.lmdb')
     class TestConvoDB(unittest.TestCase):
         def test_1(self):
-            db = MemoRepo('.test.lmdb')
             cid = 20
             db.append(Record('discord', cid, 7, "telamohn", 'user', "a"))
             db.append(Record('discord', cid, 0, "Alice", 'assistant', "b"))
@@ -98,5 +107,9 @@ if __name__ == '__main__':
             msg = messages[0]
             self.assertEqual(msg.role, 'user')
             self.assertEqual(msg.content, 'meow')
+
+        def test_2_whois(self):
+            db.get_user(7, "Describe [user] in a single line")
+            self.assertEquals(db.set_user(7), "Describe [user] in a single line")
 
     unittest.main()
