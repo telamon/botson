@@ -56,7 +56,7 @@ async def on_ready():
     bot.loop.create_task(process_queue())
 
 async def run_user_memo_hook(protocol, channel_id, author):
-    records = repo.get_channel(protocol, channel.id)
+    records = repo.get_channel(protocol, channel_id)
     messages = [{
         "role": m.role,
         "content": f"{m.author}> {m.content}" if m.role == 'user' else m.content
@@ -77,7 +77,7 @@ async def run_user_memo_hook(protocol, channel_id, author):
     """
     result = await discriminator.overthink([
         *messages,
-        {"role": "system", "content": "Please describe {name} using a single paragraph."}
+        {"role": "system", "content": "Please describe {name} using 4 senctences."}
     ])
     desc = result['generated'][-1]['content']
     print("Updating user description:", desc)
@@ -126,6 +126,7 @@ async def process_queue():
                     protocol=protocol,
                     repo=repo
                 )
+
                 # TODO: schedule this to run every once in a while.
                 await run_user_memo_hook(protocol, channel.id, author)
 

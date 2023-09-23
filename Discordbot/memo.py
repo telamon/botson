@@ -109,7 +109,13 @@ if __name__ == '__main__':
             self.assertEqual(msg.content, 'meow')
 
         def test_2_whois(self):
-            db.get_user(7, "Describe [user] in a single line")
-            self.assertEquals(db.set_user(7), "Describe [user] in a single line")
+            db.set_user(7, "Describe [user] in a single line")
+            self.assertEquals(db.get_user(7), "Describe [user] in a single line")
+
+        def test_3_vfs(self):
+            db.set_txt('/users/readme.txt', 'Placeholder')
+            self.assertEquals(db.get_txt('/users/return.txt'), "Placeholder")
+            files = db.list_txts().split('\n')
+            self.assertTrue('/users/readme.txt' in files)
 
     unittest.main()
