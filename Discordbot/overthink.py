@@ -130,9 +130,10 @@ class AIAgent(Agent):
 
     async def think(self, messages):
         functions = await self.functions_spec()
-        f_tokens = sum([count_tokens(f['content']) for f in functions])
-        m_tokens = sum([count_tokens(f['content']) for f in messages])
-        self.db(f"OAI-REQ f_Tokens  = {f_tokens}, m_tokens = {m_tokens}")
+
+        f_tokens = count_tokens(json.dumps(functions))
+        m_tokens = sum([count_tokens(l.get('content')) for l in messages])
+        self.dbg(f"OAI-REQ f_Tokens  = {f_tokens}, m_tokens = {m_tokens}")
         response = self.openai.ChatCompletion.create(
             model=self.model,
             messages=messages,
