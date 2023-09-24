@@ -4,3 +4,4 @@ python-dotenv
 lmdb
 nostr
 cbor2
+tiktoken

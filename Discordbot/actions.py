@@ -10,7 +10,8 @@ Collection of use-like functions for robots
 from overthink import AIAgent, describe, Context
 from datetime import datetime
 
-"Remind me in 3 hours to take a shower."
+# Use-cases:
+# "Remind me in 3 hours to take a break and eat something."
 
 def check_wristwatch():
     """It shows you the current time"""
@@ -19,8 +20,7 @@ def check_wristwatch():
 # Discord specific
 @describe(emoji = "One emoji", stop = "true: More talk, false: No more talk")
 async def emoji_reaction(ctx: Context, emoji: str, stop: bool):
-    """
-        Sometimes the only right answer is a reaction,
+    """Sometimes the only right answer is a reaction,
         call to add an emoji reaction to the user's message.
     """
     msg = ctx.get('user_message')
@@ -36,7 +36,7 @@ async def whois(ctx: Context, user: str):
     repo = ctx.get('repo')
     protocol = ctx.get('protocol')
     if repo is None: return "sorry my memory is glithcing" # TODO: fix bug
-    info = repo.get_user(protocol, user)
+    info = repo.search_user(protocol, user)
     if info is None: return "unknown individual"
     return info
 

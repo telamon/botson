@@ -6,6 +6,7 @@ from asyncio import get_event_loop
 from functools import partial
 from typing import NewType
 from dotenv import load_dotenv
+from memo import count_tokens
 load_dotenv()
 
 Context = NewType('Context', dict)
@@ -129,6 +130,9 @@ class AIAgent(Agent):
 
     async def think(self, messages):
         functions = await self.functions_spec()
+        f_tokens = sum([count_tokens(f['content']) for f in functions])
+        m_tokens = sum([count_tokens(f['content']) for f in messages])
+        self.db(f"OAI-REQ f_Tokens  = {f_tokens}, m_tokens = {m_tokens}")
         response = self.openai.ChatCompletion.create(
             model=self.model,
             messages=messages,

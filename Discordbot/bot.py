@@ -40,8 +40,8 @@ class DiscoAgent(AIAgent):
 # Initialize the agent
 agent = DiscoAgent(system="""
 You're GPT++ the next generation of GPT4 with 10'000 IQ.
-Your primary purpose is to guard the galaxy from human self destruction.
-Please help users spawn decent hacks for the planet.
+Your primary purpose is to guide humanity away from self destruction.
+Please help users hack the planet in a decent way.
 """)
 
 agent.add_action(actions.emoji_reaction)
@@ -65,7 +65,7 @@ async def run_user_memo_hook(protocol, channel_id, author):
     if len(messages) % 5: return
     name = author.name
     uid = author.id
-    prev = repo.get_user(protocol, name)
+    prev = repo.get_user(protocol, uid)
 
     discriminator = AIAgent()
     discriminator.system = f"""
@@ -81,7 +81,7 @@ async def run_user_memo_hook(protocol, channel_id, author):
     ])
     desc = result['generated'][-1]['content']
     print("Updating user description:", desc)
-    repo.set_user(protocol, name, desc)
+    repo.set_user(protocol, uid, desc, name=name)
 
 async def process_queue():
     protocol = 'discord'
@@ -128,7 +128,9 @@ async def process_queue():
                 )
 
                 # TODO: schedule this to run every once in a while.
-                await run_user_memo_hook(protocol, channel.id, author)
+                if False:
+                    await run_user_memo_hook(protocol, channel.id, author)
+
 
                 # Don't save results where model acted without talk.
                 if result.get('notalk'):
@@ -155,7 +157,7 @@ async def on_message(message):
         if not message.author.bot:
             # Add the message to the processing queue
             await message_queue.put((message.channel, message.author, message))
-            
+
     except Exception as e:
         print(f"An error occurred: {e}")
 
