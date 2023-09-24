@@ -27,15 +27,16 @@ repo = MemoRepo('memo.lmdb')
 
 class DiscoAgent(AIAgent):
     async def output (self, messages, ctx):
+        is_dm = ctx.get('is_dm')
         channel = ctx.get('channel')
         author = ctx.get('author')
         bot = ctx.get('bot')
         for msg in messages:
             print(f"{bot.user.name}>", msg)
         last = messages[-1]
-
+        out = f"{author.mention} {last['content']}" if not is_dm else last['content']
         # Send message
-        await channel.send(f"{author.mention} {last['content']}")
+        await channel.send(out)
 
 # Initialize the agent
 agent = DiscoAgent(system="""
@@ -88,13 +89,19 @@ async def process_queue():
     while True:
         # Get the next message from the queue
         channel, author, user_message = await message_queue.get()
+        is_dm = isinstance(channel, discord.DMChannel)
         is_mentioned = bot.user.mentioned_in(user_message)
-        reply_expected = bot.user.mentioned_in(user_message) or bot.user.id == channel.owner_id
+        reply_expected = bot.user.mentioned_in(user_message)
 
-        # Create + Reply in threads.
-        if is_mentioned and not isinstance(channel, discord.Thread):
-            reply_expected = True
+        # Create threads when mentioned
+        if is_mentioned and not is_dm and not isinstance(channel, discord.Thread):
             channel = await user_message.create_thread(name="Conversation")
+        # Reply to own threads
+        if isinstance(channel, discord.Thread) and bot.user.id == channel.owner_id:
+            reply_expected = True
+        # Reply to DM's
+        if is_dm:
+            reply_expected = True
 
         # Record/Memorize general activity
         repo.append(Record(
@@ -124,7 +131,8 @@ async def process_queue():
                     user_message=user_message,
                     bot=bot,
                     protocol=protocol,
-                    repo=repo
+                    repo=repo,
+                    is_dm
                 )
 
                 # TODO: schedule this to run every once in a while.

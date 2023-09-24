@@ -5,3 +5,5 @@ lmdb
 nostr
 cbor2
 tiktoken
+termcolor
+gpt4all

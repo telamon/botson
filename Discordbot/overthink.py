@@ -7,6 +7,7 @@ from functools import partial
 from typing import NewType
 from dotenv import load_dotenv
 from memo import count_tokens
+from termcolor import colored
 load_dotenv()
 
 Context = NewType('Context', dict)
@@ -27,8 +28,12 @@ class Agent():
         name = spec['name']
         self.actions[name] = action
 
-    def dbg (self, *args):
-        print("DBG>", *args)
+    def dbg (self, *args, **kwargs):
+        if kwargs.get('color') is not None:
+            col = kwargs.get('color')
+            print("D>", *[colored(arg, col) for arg in args])
+        else:
+            print("D>", *args, **kwargs)
 
     async def overthink(self, messages: list, **context):
         """Perform recursive generation
@@ -47,21 +52,30 @@ class Agent():
             _generated = context.pop('_generated')
 
         self.dbg(f"Overthink(ROUND{_depth}, {context})")
-        if _depth == 0:
-            for msg in messages:
-                self.dbg('input>', msg)
+
+        composed_messages = [
+            { "role": "system", "content": self.system },
+            *messages,
+            *_generated
+        ]
+        # Pretty print convo
+        for msg in composed_messages:
+            color = {
+                "function": "yellow",
+                "assistant": "white",
+                "user": "blue",
+                "system": "magenta"
+            }[msg.get('role')]
+            self.dbg('I>', msg, color=color)
+
         if _depth < self.max_depth:
-            message = await self.think([
-                { "role": "system", "content": self.system },
-                *messages,
-                *_generated
-            ])
+            message = await self.think(composed_messages)
             _generated.append(message)
 
             if message.get('function_call'):
                 name = message["function_call"]["name"]
                 arguments = json.loads(message["function_call"]["arguments"])
-                self.dbg(f"RUNNING[{name}]({arguments})", message)
+                self.dbg(f"RUNNING[{name}]({arguments})", message, color='red')
 
                 if name in self.actions:
                     result = await self._invoke_action(name, arguments, context)
@@ -72,9 +86,7 @@ class Agent():
                         if not isinstance(result, str):
                             result = json.dumps(result)
                         # TODO: handle binary/attachments results, images, audio, video what not.
-                        _generated.append(message) # append message
-                        # TODO: JSON stringify result
-                        _generated.append({ "role": "function", "name": name, "content": result})
+                        _generated.append({ "role": "function", "name": name, "content": result })
 
                         # Recurse with new generated output
                         _depth+=1
@@ -130,10 +142,12 @@ class AIAgent(Agent):
 
     async def think(self, messages):
         functions = await self.functions_spec()
-
+        m_tokens = 0
+        for msg in messages:
+            c = msg.get('content')
+            if c is not None: m_tokens += count_tokens(c)
         f_tokens = count_tokens(json.dumps(functions))
-        m_tokens = sum([count_tokens(l.get('content')) for l in messages])
-        self.dbg(f"OAI-REQ f_Tokens  = {f_tokens}, m_tokens = {m_tokens}")
+        self.dbg(f"OAI-REQ f_tokens  = {f_tokens}, m_tokens = {m_tokens}")
         response = self.openai.ChatCompletion.create(
             model=self.model,
             messages=messages,
@@ -144,6 +158,18 @@ class AIAgent(Agent):
         term_stop = response["choices"][0]["finish_reason"]
         print(f"finish_reason: {term_stop}")
         return message
+
+class LocalAgent(Agent):
+    def __init__(self, path, **kwargs):
+        super().__init__(**kwargs)
+        from gpt4all import GPT4All
+        self.model = GPT4All(path)
+
+    async def think(self, messages):
+        response = self.model.generate(messages)
+        import pdb; pdb.set_trace()
+        return response
+
 
 def describe(description = None, **annotations):
     def inner(func):
