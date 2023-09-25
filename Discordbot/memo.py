@@ -47,6 +47,7 @@ class MemoRepo:
 
         self.chan_db = self.env.open_db('channels'.encode('utf8'))
         self.peers_db = self.env.open_db('people'.encode('utf8'))
+        self.db_txt = self.env.open_db('txt'.encode('utf8'))
 
     def append(self, record: Record):
         with self.env.begin(db=self.chan_db, write=True) as txn:
@@ -99,6 +100,26 @@ class MemoRepo:
                     out = txn.get(ptr)
                     if out is not None: out = cbor2.loads(out)
         return out
+
+    def set_txt(self, path, data):
+        with self.env.begin(db=self.db_txt, write=True) as txn:
+            txn.put(path.encode('utf8'), cbor2.dumps(data))
+
+    def get_txt(self, path):
+        with self.env.begin(db=self.db_txt) as txn:
+            data = txn.get(path.encode('utf8'))
+            if data is None:
+                return 'error: File not found'
+            return cbor2.loads(data)
+
+    def list_txts(self):
+        keys = []
+        with self.env.begin(db=self.db_txt) as txn:
+            cursor = txn.cursor()
+            for k in cursor.iternext(values=False):
+                keys.append(k.decode('utf8'))
+
+        return '\n'.join(keys)
 
     def close (self):
         self.env.close()
@@ -175,10 +196,9 @@ if __name__ == '__main__':
             # fuzzy-search
             self.assertEqual(db.search_user('n', 'te'), 'B')
 
-        @unittest.skip("Not yet")
         def test_3_vfs(self):
             db.set_txt('/users/readme.txt', 'Placeholder')
-            self.assertEquals(db.get_txt('/users/return.txt'), "Placeholder")
+            self.assertEqual(db.get_txt('/users/readme.txt'), "Placeholder")
             files = db.list_txts().split('\n')
             self.assertTrue('/users/readme.txt' in files)
 

@@ -160,10 +160,15 @@ class AIAgent(Agent):
         return message
 
 class LocalAgent(Agent):
+    """Run AI locally.
+    Download a model of your choice from: https://gpt4all.io/index.html
+    then:
+        agent = LocalAgent('/path/to/model.bin', device='gpu')
+    """
     def __init__(self, path, **kwargs):
         super().__init__(**kwargs)
         from gpt4all import GPT4All
-        self.model = GPT4All(path)
+        self.model = GPT4All(path, device=kwargs.get('device'))
 
     async def think(self, messages):
         response = self.model.generate(messages)

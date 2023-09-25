@@ -41,10 +41,6 @@ class TermAIAgent(AIAgent):
     async def output(self, messages, ctx):
         [print(f"out> {m}") for m in messages]
 
-class LocalAgent(Agent):
-
-
-
 # Define a test action
 @describe(
     """
