@@ -132,7 +132,7 @@ async def process_queue():
                     bot=bot,
                     protocol=protocol,
                     repo=repo,
-                    is_dm
+                    is_dm=is_dm
                 )
 
                 # TODO: schedule this to run every once in a while.
